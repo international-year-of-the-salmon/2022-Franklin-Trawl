@@ -1,0 +1,17 @@
+---
+title: "2022-Franklin-Trawl"
+output: html_document
+date: "2022-07-26"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(here)
+library(lubridate)
+library(obistools)
+
+download.file("https://github.com/international-year-of-the-salmon/2022-Franklin-Data-Template/blob/main/IYS_2022_FRANKLIN.xlsx?raw=true", here::here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), quiet = TRUE, mode = "wb")
+
+```
