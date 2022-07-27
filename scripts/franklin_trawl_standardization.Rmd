@@ -14,4 +14,370 @@ library(obistools)
 
 download.file("https://github.com/international-year-of-the-salmon/2022-Franklin-Data-Template/blob/main/IYS_2022_FRANKLIN.xlsx?raw=true", here::here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), quiet = TRUE, mode = "wb")
 
+Franklin_event <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "3. SAMPLING EVENT INFO") %>% filter(Event_Type == "Trawl")
+```
+
+Create function to determine polygon coordinates required for the metadata:
+
+```{r polygon coordinates, include = FALSE}
+polygon_coords <- function(Franklin_event){
+  Franklin_event <- Franklin_event %>% select(Latitude_Start_DecDeg, Longitude_Start_DecDeg) %>% 
+    drop_na(Latitude_Start_DecDeg, Longitude_Start_DecDeg) 
+  ch <- chull(Franklin_event)
+  coords <- Franklin_event[c(ch, ch[1]), ]
+  coords <- paste(coords$Latitude_Start_DecDeg, coords$Longitude_Start_DecDeg, sep = ",", collapse = " ")
+  coords
+}
+polygon_coords(Franklin_event)
+```
+
+Create Event Core:
+
+```{r event_core, include = FALSE}
+Franklin_event <- Franklin_event %>% 
+  mutate(eventDate = paste(Time_Start_UTC, Time_End_UTC, sep = "/"),
+         Month = ifelse(Month == "Feb", "2", "3") %>% as.numeric()) # Change Feb to 2, and Mar to 3.
+
+# Change Station_Event_IDs to facilitate project-level integration:
+Franklin_event <- Franklin_event %>%
+  mutate(TRIP_ID = "IYS2022",
+         Vessel_Name_Abbr = "Franklin",
+         Station_Event_ID = paste(TRIP_ID, Vessel_Name_Abbr, Zone, Event_Type, Station, sep = "-"))
+         
+Franklin_event_coordinates <- Franklin_event %>%
+  select(eventID = Station_Event_ID,
+         Longitude_Start_DecDeg, Latitude_Start_DecDeg,
+         Longitude_End_DecDeg, Latitude_End_DecDeg) %>%
+  distinct(eventID, .keep_all = TRUE) %>%
+  mutate(footprintWKT = paste("LINESTRING (", Longitude_Start_DecDeg, Latitude_Start_DecDeg, ",", 
+                              Longitude_End_DecDeg, Latitude_End_DecDeg, ")")) 
+
+Franklin_event_linestring <- obistools::calculate_centroid(Franklin_event_coordinates$footprintWKT)
+Franklin_event_linestring <- cbind(Franklin_event_coordinates, Franklin_event_linestring) %>%
+  select(eventID, footprintWKT, decimalLatitude, decimalLongitude, coordinateUncertaintyInMeters)
+
+Franklin_event_trawl <- Franklin_event %>%
+  select(eventID = Station_Event_ID,
+         eventDate,
+         Year, Month, Day,
+         minimumDepthInMeters = Minimum_Sampling_Depth_Meters,
+         maximumDepthInMeters = Maximum_Sampling_Depth_Meters) %>%
+  left_join(Franklin_event_linestring, by = "eventID") %>%
+  distinct(eventID, .keep_all = TRUE) %>%
+  mutate(geodeticDatum = "WGS84")
+
+# Save locally:
+write_csv(Franklin_event_trawl, here("standardized_data", "Franklin2022_event.csv"))
+
+# Make sure there are no duplicated EventIDs:
+Franklin_event_trawl[duplicated(Franklin_event_trawl$eventID),] # should be none. 
+```
+
+Next, create the occurrence extension for the overall catch: 
+
+```{r occurrence overall catch, eval = FALSE}
+occurrence_allCatch <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "4. CATCH_FINAL INFO")     
+occurrence_allCatch <- occurrence_allCatch %>% rename(scientificname = Scientific_Name)
+unique_spp <- unique(occurrence_allCatch$scientificname) %>% as.data.frame()
+colnames(unique_spp) <- "scientificname"
+
+# Assign WoRMS LSID to the unique species:
+worms_id <- worrms::wm_records_names(unique(occurrence_allCatch$scientificname), marine_only = FALSE) %>% dplyr::bind_rows()
+
+# Find out which species are not found in the WoRMS database:
+worms_occ <- left_join(unique_spp, worms_id, by = "scientificname") %>% 
+  filter(is.na(AphiaID)) %>% distinct(scientificname)
+
+# Change the taxa names accordingly: 
+occurrence_allCatch$scientificname <- gsub("Hormiphora cucumisÂ ", "Hormiphora cucumis", occurrence_allCatch$scientificname)                        
+occurrence_allCatch$scientificname <- gsub("Onychoteuthis borealijaponicus","Onychoteuthis borealijaponica", occurrence_allCatch$scientificname)
+occurrence_allCatch$scientificname <- gsub("Unknown fish", "Pisces", occurrence_allCatch$scientificname)
+
+# So now we can run worrms::wm_records_names again, and there should be no NA in the AphiaID column. Be sure to inspect the result as sometimes multiple AphiaIDs are generated for the same taxa.    
+occurrence_allCatch_id <- worrms::wm_records_names(unique(occurrence_allCatch$scientificname), marine_only = FALSE) %>% bind_rows() 
+
+# Omit certain AphiaIDs that do not apply:
+occurrence_allCatch_id <- occurrence_allCatch_id %>% filter(!AphiaID %in% c("956054", "956065", "163921"))
+
+# Now that all unique entries have a WoRMS ID, connect this to the original data frame:
+Franklin_occurrence_all <- left_join(occurrence_allCatch_id, occurrence_allCatch, by = "scientificname")
+
+# Omit biomass data from the occurrence extension:
+Franklin_occurrence <- Franklin_occurrence_all %>%
+  mutate(specificEpithet = stringr::word(scientificname, 2)) %>%
+  select(eventID = Station_Event_ID, occurrenceID = Catch_ID, 
+         scientificName = scientificname,
+         scientificNameID = `lsid`, 
+         scientificNameAuthorship = authority,
+         taxonomicStatus = status,
+         taxonRank = rank, 
+         vernacularName = Species_recorded, 
+         individualCount = Catch_count, kingdom, phylum, class, order, family, genus, specificEpithet,
+         dateIdentified = dateidentified, identifiedBy) %>% distinct() %>%
+  mutate(basisOfRecord = "HumanObservation",
+         occurrenceStatus = "present")
+
+# TODO: Change the Station_Event_IDs and Catch_IDs accordingly to ensure proper nesting under the Event Core.
+
+# Save locally:
+write_csv(Franklin_occurrence, here("standardized_data", "IYS2022_Franklin_occurrence_trawl_all.csv"))
+```
+
+Next, create the occurrence extension for the specimen catch: 
+
+```{r occurrence overall catch, eval = FALSE}
+occurrence_specimen <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "5. SPECIMEN INFO")
+occurrence_specimen <- occurrence_specimen %>% rename(scientificname = Scientific_Name)
+unique_spp_specimen <- unique(occurrence_specimen$scientificname) %>% as.data.frame()
+colnames(unique_spp_specimen) <- "scientificname"
+
+# Assign WoRMS LSID to the unique species:
+worms_id <- worrms::wm_records_names(unique(occurrence_specimen$scientificname), marine_only = FALSE) %>% dplyr::bind_rows()
+
+# Find out which species are not found in the WoRMS database:
+worms_occ <- left_join(unique_spp_specimen, worms_id, by = "scientificname") %>% 
+  filter(is.na(AphiaID)) %>% distinct(scientificname)
+
+# Change the taxa names accordingly: 
+occurrence_allCatch$scientificname <- gsub("Onychoteuthis borealijaponicus","Onychoteuthis borealijaponica", occurrence_allCatch$scientificname)
+occurrence_allCatch$scientificname <- gsub("Unknown fish", "Pisces", occurrence_allCatch$scientificname)
+
+# So now we can run worrms::wm_records_names again, and there should be no NA in the AphiaID column. Be sure to inspect the result as sometimes multiple AphiaIDs are generated for the same taxa.    
+occurrence_specimen_id <- worrms::wm_records_names(unique(occurrence_specimen$scientificname), marine_only = FALSE) %>% bind_rows() 
+
+# Omit certain AphiaIDs that do not apply:
+occurrence_specimen_id <- occurrence_specimen_id %>% filter(!AphiaID %in% c("956054", "956065", "163921"))
+
+# Now that all unique entries have a WoRMS ID, connect this to the original data frame:
+Franklin_occurrence_specimen <- left_join(occurrence_specimen_id, occurrence_specimen, by = "scientificname")
+# Omit biomass data from the occurrence extension:
+Franklin_occ_specimen <- Franklin_occurrence_specimen %>%
+  mutate(specificEpithet = stringr::word(scientificname, 2)) %>%
+  select(eventID = Station_Event_ID, 
+         occurrenceID = Specimen_ID, 
+         scientificName = scientificname,
+         scientificNameID = `lsid`, 
+         scientificNameAuthorship = authority,
+         taxonomicStatus = status,
+         taxonRank = rank, 
+         lifeStage = Ageclass,
+         vernacularName = common_name, 
+         kingdom, phylum, class, order, family, genus, specificEpithet) %>% distinct() %>%
+  mutate(basisOfRecord = "HumanObservation",
+         occurrenceStatus = "present")
+
+# TODO: Change EventIDs and OccurrenceIDs to facilitate integration and nesting with Event Core. 
+
+# Save locally:
+write_csv(Franklin_occ_specimen, here("standardized_data", "IYS2022_Franklin_occurrence_trawl_specimen.csv"))
+```
+
+Combine both occurrence extensions into a final data table:
+
+```{r occurrence, eval = FALSE}
+Franklin2022_occ <- dplyr::bind_rows(Franklin_occurrence, Franklin_occ_specimen)
+
+# To re-order the occurrenceID, use following code:
+order <- stringr::str_sort(Franklin2022_occ$occurrenceID, numeric=TRUE)
+Franklin2022_occ <- Franklin2022_occ[match(order, Franklin2022_occ$occurrenceID),]
+
+# Remove NA and replace with empty cells:
+Franklin2022_occ <- sapply(Franklin2022_occ, as.character)
+Franklin2022_occ[is.na(Franklin2022_occ)] <- ""
+Franklin2022_occ <- as.data.frame(Franklin2022_occ)
+
+# Check if occurrenceIDs are all unique - answer should be TRUE:
+length(unique(Franklin2022_occ$occurrenceID)) == nrow(Franklin2022_occ)
+Franklin2022_occ[duplicated(Franklin2022_occ$occurrenceID),]
+
+# Save the occurrence Core locally and in Google Drive:
+write_csv(Franklin2022_occ, here("standardized_data", "Franklin2022_occ.csv"))
+```
+
+Create resourceRelationship extension: 
+
+```{r resourceRelationship, eval = FALSE}
+Franklin2022_resourceRelationship <- Franklin2022_occ %>%
+  select(eventID, occurrenceID, scientificName, individualCount)
+Franklin2022_resourceRelationship$individualCount <- as.numeric(Franklin2022_resourceRelationship$individualCount)
+  
+Franklin2022_resourceRelationship <- Franklin2022_resourceRelationship %>%
+  mutate(resourceID = ifelse(is.na(individualCount), Franklin2022_resourceRelationship$occurrenceID, NA)) %>%
+  group_by(eventID, scientificName) %>%
+  filter(n() != 1) %>%
+  ungroup()
+
+Franklin2022_resourceRelationship <- Franklin2022_resourceRelationship %>%
+  mutate(relatedResourceID = ifelse(is.na(individualCount), NA, Franklin2022_resourceRelationship$occurrenceID)) %>%
+  mutate(relationshipOfResource = ifelse(!is.na(resourceID), "is a subset of", NA)) %>%
+  dplyr::arrange(eventID, scientificName) %>%
+  fill(relatedResourceID) %>%
+  filter(!is.na(resourceID))
+
+order <- stringr::str_sort(Franklin2022_resourceRelationship$resourceID, numeric = TRUE)
+Franklin2022_resourceRelationship <- Franklin2022_resourceRelationship[match(order, Franklin2022_resourceRelationship$resourceID),]
+Franklin2022_resourceRelationship <- Franklin2022_resourceRelationship %>%
+  mutate(resourceRelationshipID = paste(relatedResourceID, "rr", sep = "-"),
+         ID = sprintf("%03d", row_number()),
+         resourceRelationshipID = paste(resourceRelationshipID, ID, sep = "-")) %>%
+  select(eventID, resourceRelationshipID, resourceID, relationshipOfResource, relatedResourceID)
+
+# TODO: Look at resourceRelationship again. 
+
+write_csv(Franklin2022_resourceRelationship, here("standardized_data", "Franklin2022_resourceRelationship.csv"))
+```
+
+Create eMOF extension data table:
+
+```{r eMOF, eval = FALSE}
+# Data table for the facts related to the Research Vessel:
+Franklin2022_rv <- Franklin_event %>%
+  select(eventID = Station_Event_ID) %>%
+  mutate_all(as.character) %>%
+  mutate(measurementType = "Research Vessel",
+         measurementTypeID = "http://vocab.nerc.ac.uk/collection/L06/current/31/",
+         measurementValue = "CCGS Sir John Franklin",
+         measurementValueID = "http://vocab.nerc.ac.uk/collection/C17/current/18KD/",
+         measurementUnit = NA,
+         measurementUnitID = NA) %>% distinct()
+
+# Data table for the bottom depth at each sampling station:
+Franklin2022_bottomdepth <- Franklin_event %>%
+  select(eventID = Station_Event_ID,
+         Bottom_Depth_Meters = Bottom_Depth_Start) %>%
+  mutate_all(as.character) %>%
+  pivot_longer(cols = Bottom_Depth_Meters,
+               names_to = "measurementType",
+               values_to = "measurementValue") %>%
+  mutate(measurementTypeID = case_when(
+           measurementType == "Bottom_Depth_Meters" ~ "http://vocab.nerc.ac.uk/collection/P09/current/BATH/"),
+         measurementUnit = "meters",
+         measurementUnitID = case_when(
+           measurementUnit == "meters" ~ "http://vocab.nerc.ac.uk/collection/P06/current/ULAA/"),
+         measurementValueID = NA,
+         measurementID = paste(eventID, measurementType, sep = "-")) %>%
+  select(eventID, measurementID, measurementType, measurementTypeID, measurementValue, measurementValueID,
+         measurementUnit, measurementUnitID)
+
+# Data table for the sampling effort:
+Franklin2022_samplingEffort <- Franklin_event %>%
+  select(eventID = Station_Event_ID,
+         Sampling_Duration,
+         Tow_speed,
+         Tow_distance) %>%
+  mutate_all(as.character) %>%
+  pivot_longer(cols = Sampling_Duration:Tow_distance,
+               names_to = "measurementType",
+               values_to = "measurementValue") %>%
+  mutate(measurementTypeID = case_when(
+           measurementType == "Sampling_Duration" ~ "http://vocab.nerc.ac.uk/collection/P01/current/AZDRZZ01/",
+           measurementType == "Tow_speed" ~ "http://vocab.nerc.ac.uk/collection/P01/current/TOWSPEED/",
+           measurementType == "Tow_distance" ~ "http://vocab.nerc.ac.uk/collection/P01/current/LENTRACK/"),
+         measurementUnit = case_when(
+           measurementType == "Sampling_Duration" ~ "minutes",
+           measurementType == "Tow_speed" ~ "kilometers per hour",
+           measurementType == "Tow_distance" ~ "kilometers"),
+         measurementUnitID = case_when(
+           measurementUnit == "minutes" ~ "http://vocab.nerc.ac.uk/collection/P06/current/UMIN/",
+           measurementUnit == "kilometers per hour" ~ "https://vocab.nerc.ac.uk/collection/P06/current/KMHR/",
+           measurementUnit == "kilometers" ~ "http://vocab.nerc.ac.uk/collection/P06/current/ULKM/"),
+         measurementValueID = NA,
+         measurementID = paste(eventID, measurementType, sep = "-")) %>%
+  select(eventID, measurementID, measurementType, measurementTypeID, measurementValue, measurementValueID,
+         measurementUnit, measurementUnitID)
+
+# Data table for the oceanic/atmospheric conditions during the sampling event:
+Franklin2022_conditions <- Franklin_event %>%
+  select(eventID = Station_Event_ID,
+         Wave_height) %>%
+  mutate_all(as.character) %>%
+  pivot_longer(cols = Wave_height,
+               names_to = "measurementType",
+               values_to = "measurementValue") %>%
+  mutate(measurementTypeID = case_when(
+           measurementType == "Wave_height" ~ "http://vocab.nerc.ac.uk/collection/P07/current/JNQS0CMX/"),
+         measurementUnit = case_when(
+           measurementType == "Wave_height" ~ "meters"),
+         measurementUnitID = case_when(
+           measurementUnit == "meters" ~ "http://vocab.nerc.ac.uk/collection/P06/current/ULAA/"),
+         measurementValueID = NA,
+         measurementID = paste(eventID, measurementType, sep = "-")) %>% 
+  drop_na(measurementValue) %>%
+  select(eventID, measurementID, measurementType, measurementTypeID, measurementValue, measurementValueID,
+         measurementUnit, measurementUnitID)
+
+Franklin2022_trawl_allCatch_eMOF <- Franklin_occurrence_all %>%
+  select(eventID = Station_Event_ID,
+         occurrenceID = Catch_ID,
+         individualCount = Catch_count,
+         Catch_weight,
+         Count_method) %>%
+  mutate_all(as.character) %>%
+  pivot_longer(cols = c(individualCount:Catch_weight),
+               names_to = "measurementType",
+               values_to = "measurementValue") %>%
+  rename(measurementMethod = Count_method)
+
+Franklin2022_trawl_allCatch_eMOF <- Franklin2022_trawl_allCatch_eMOF %>%
+  mutate(measurementID = paste0(occurrenceID, measurementType, sep = "-"),
+         measurementTypeID = case_when(
+           measurementType == "individualCount" ~ "http://vocab.nerc.ac.uk/collection/P01/current/OCOUNT01/",
+           measurementType == "Catch_weight" ~ "http://vocab.nerc.ac.uk/collection/S06/current/S0600088/"),
+         measurementUnit = case_when(
+           measurementType == "individualCount" ~ "individuals",
+           measurementType == "Catch_Weight" ~ "kilogram"),
+         measurementUnitID = case_when(
+           measurementUnit == "kilogram" ~ "http://vocab.nerc.ac.uk/collection/P06/current/KGXX/",
+           measurementUnit == "individuals" ~ "http://vocab.nerc.ac.uk/collection/P06/current/UUUU/"),
+         measurementValueID = NA) %>%
+  select(eventID, occurrenceID, measurementID, measurementType, measurementTypeID, measurementValue, measurementValueID,
+         measurementUnit, measurementUnitID, measurementMethod)
+
+# And for the individual specimen data:
+Franklin2022_ind_eMOF <- Franklin_occurrence_specimen %>%
+  select(eventID = Station_Event_ID,
+         occurrenceID = Specimen_ID, 
+         Ageclass, Specimen_Length, Specimen_Weight, Sex) %>%
+  mutate_all(as.character) %>%
+  pivot_longer(cols = Ageclass:Sex,
+               names_to = "measurementType", 
+               values_to = "measurementValue") %>%
+  mutate(measurementID = paste(occurrenceID, measurementType, sep = "-"),
+         measurementTypeID = case_when(
+           measurementType == "Ageclass" ~ "http://vocab.nerc.ac.uk/collection/P01/current/LSTAGE01/",
+           measurementType == "Sex" ~ "http://vocab.nerc.ac.uk/collection/P01/current/ENTSEX01/",
+           measurementType == "Specimen_Length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/OBSINDLX/",
+           measurementType == "Specimen_Weight" ~ "http://vocab.nerc.ac.uk/collection/S06/current/S0600088/"),
+         measurementUnit = case_when(
+           measurementType == "Specimen_Length" ~ "millimeters",
+           measurementType == "Specimen_Weight" ~ "grams"),
+         measurementUnitID = case_when(
+           measurementUnit == "grams" ~ "http://vocab.nerc.ac.uk/collection/P06/current/UGRM/",
+           measurementUnit == "millimeters" ~ "http://vocab.nerc.ac.uk/collection/P06/current/UXMM/"),
+         measurementValueID = case_when(
+           measurementValue == "Unknown" ~ "https://vocab.nerc.ac.uk/collection/S10/current/S105/",
+           measurementValue == "Immature" ~ "http://vocab.nerc.ac.uk/collection/S11/current/S1171/",
+           measurementValue == "Male" ~ "https://vocab.nerc.ac.uk/collection/S10/current/S103/",
+           measurementValue == "Female" ~ "http://vocab.nerc.ac.uk/collection/S10/current/S102/")) %>%
+  select(eventID, occurrenceID, measurementID, measurementType, measurementTypeID, measurementValue, measurementValueID,
+         measurementUnit, measurementUnitID)
+```
+
+Combine the extended measurementOrFact extensions into a single eMOF extension, and save locally and in GoogleDrive:
+
+``` {r}
+Franklin2022_eMOF <- dplyr::bind_rows(Franklin2022_rv,
+                                     Franklin2022_bottomdepth,
+                                     Franklin2022_samplingEffort,
+                                     Franklin2022_conditions,
+                                     Franklin2022_trawl_allCatch_eMOF,
+                                     Franklin2022_ind_eMOF)
+
+# Remove NA and replace with empty cells:
+Franklin2022_eMOF <- sapply(Franklin2022_eMOF, as.character)
+Franklin2022_eMOF[is.na(Franklin2022_eMOF)] <- ""
+Franklin2022_eMOF <- as.data.frame(Franklin2022_eMOF)
+
+# Save locally
+write_csv(Franklin2022_eMOF, here("standardized_data", "Franklin2022_eMOF.csv"))
 ```
