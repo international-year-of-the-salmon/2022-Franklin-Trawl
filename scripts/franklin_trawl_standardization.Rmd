@@ -12,7 +12,7 @@ library(here)
 library(lubridate)
 library(obistools)
 
-download.file("https://github.com/international-year-of-the-salmon/2022-Franklin-Data-Template/blob/main/IYS_2022_FRANKLIN.xlsx?raw=true", here::here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), quiet = TRUE, mode = "wb")
+download.file("https://github.com/international-year-of-the-salmon/2022-Franklin-Data-Template/blob/main/IYS_2022_FRANKLIN.xlsx?raw=true", here::here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), quiet = TRUE, mode = "wb", overwrite = TRUE)
 
 Franklin_event <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "3. SAMPLING EVENT INFO") %>% filter(Event_Type == "Trawl")
 ```
@@ -90,7 +90,6 @@ worms_occ <- left_join(unique_spp, worms_id, by = "scientificname") %>%
   filter(is.na(AphiaID)) %>% distinct(scientificname)
 
 # Change the taxa names accordingly: 
-occurrence_allCatch$scientificname <- gsub("Hormiphora cucumisÂ ", "Hormiphora cucumis", occurrence_allCatch$scientificname)                        
 occurrence_allCatch$scientificname <- gsub("Onychoteuthis borealijaponicus","Onychoteuthis borealijaponica", occurrence_allCatch$scientificname)
 occurrence_allCatch$scientificname <- gsub("Unknown fish", "Pisces", occurrence_allCatch$scientificname)
 
@@ -219,8 +218,6 @@ Franklin2022_resourceRelationship <- Franklin2022_resourceRelationship %>%
          resourceRelationshipID = paste(resourceRelationshipID, ID, sep = "-")) %>%
   select(eventID, resourceRelationshipID, resourceID, relationshipOfResource, relatedResourceID)
 
-# TODO: Look at resourceRelationship again. 
-
 write_csv(Franklin2022_resourceRelationship, here("standardized_data", "Franklin2022_resourceRelationship.csv"))
 ```
 
@@ -334,19 +331,29 @@ Franklin2022_trawl_allCatch_eMOF <- Franklin2022_trawl_allCatch_eMOF %>%
 Franklin2022_ind_eMOF <- Franklin_occurrence_specimen %>%
   select(eventID = Station_Event_ID,
          occurrenceID = Specimen_ID, 
-         Ageclass, Specimen_Length, Specimen_Weight, Sex) %>%
+         Ageclass, Specimen_Length, Specimen_Weight, Sex, Length_Type) %>%
   mutate_all(as.character) %>%
   pivot_longer(cols = Ageclass:Sex,
                names_to = "measurementType", 
                values_to = "measurementValue") %>%
+  mutate(measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Total Length", "Specimen total length", measurementType),
+         measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Fork Length", "Specimen fork length", measurementType),
+         measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Mantle Length", "Specimen mantle length", measurementType),
+         measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Bell Diameter", "Specimen bell diameter", measurementType),
+         measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Standard Length", "Specimen standard length", measurementType)) %>%
   mutate(measurementID = paste(occurrenceID, measurementType, sep = "-"),
          measurementTypeID = case_when(
            measurementType == "Ageclass" ~ "http://vocab.nerc.ac.uk/collection/P01/current/LSTAGE01/",
            measurementType == "Sex" ~ "http://vocab.nerc.ac.uk/collection/P01/current/ENTSEX01/",
-           measurementType == "Specimen_Length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/OBSINDLX/",
+           measurementType == "Specimen total length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/TL01XX01",
+           measurementType == "Specimen fork length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/FL01XX01/",
+           measurementType == "Specimen mantle length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/DML1XX01/",
+           measurementType == "Specimen bell diameter" ~ "http://vocab.nerc.ac.uk/collection/P01/current/OBSINDDM/",
+           measurementType == "Specimen standard length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/SL01XX01/",
            measurementType == "Specimen_Weight" ~ "http://vocab.nerc.ac.uk/collection/S06/current/S0600088/"),
          measurementUnit = case_when(
-           measurementType == "Specimen_Length" ~ "millimeters",
+           measurementType %in% c("Specimen total length", "Specimen fork length", "Specimen mantle length", 
+                                  "Specimen bell diameter", "Specimen standard length") ~ "millimeters",
            measurementType == "Specimen_Weight" ~ "grams"),
          measurementUnitID = case_when(
            measurementUnit == "grams" ~ "http://vocab.nerc.ac.uk/collection/P06/current/UGRM/",
