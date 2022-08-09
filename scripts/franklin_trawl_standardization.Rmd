@@ -40,7 +40,7 @@ Franklin_event <- Franklin_event %>%
 
 # Change Station_Event_IDs to facilitate project-level integration:
 Franklin_event <- Franklin_event %>%
-  dplyr::rename(eventID = Station_Event_ID)
+  dplyr::rename(eventID = DFO_Station_Event_ID)
     
 Franklin_event_coordinates <- Franklin_event %>%
   select(eventID,
@@ -105,7 +105,7 @@ Franklin_occurrence_all <- left_join(occurrence_allCatch_id, occurrence_allCatch
 # Omit biomass data from the occurrence extension:
 Franklin_occurrence <- Franklin_occurrence_all %>%
   mutate(specificEpithet = stringr::word(scientificname, 2)) %>%
-  select(eventID = Station_Event_ID, occurrenceID = Catch_ID, 
+  select(eventID = DFO_Station_Event_ID, occurrenceID = DFO_Catch_ID, 
          scientificName = scientificname,
          scientificNameID = `lsid`, 
          scientificNameAuthorship = authority,
@@ -148,11 +148,12 @@ occurrence_specimen_id <- occurrence_specimen_id %>% filter(!AphiaID %in% c("956
 
 # Now that all unique entries have a WoRMS ID, connect this to the original data frame:
 Franklin_occurrence_specimen <- left_join(occurrence_specimen_id, occurrence_specimen, by = "scientificname")
+
 # Omit biomass data from the occurrence extension:
 Franklin_occ_specimen <- Franklin_occurrence_specimen %>%
   mutate(specificEpithet = stringr::word(scientificname, 2)) %>%
-  select(eventID = Station_Event_ID, 
-         occurrenceID = Specimen_ID, 
+  select(eventID = DFO_Station_Event_ID, 
+         occurrenceID = DFO_Specimen_ID, 
          scientificName = scientificname,
          scientificNameID = `lsid`, 
          scientificNameAuthorship = authority,
