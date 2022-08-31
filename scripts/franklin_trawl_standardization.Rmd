@@ -65,7 +65,11 @@ Franklin_event_trawl <- Franklin_event %>%
   left_join(Franklin_event_linestring, by = "eventID") %>%
   distinct(eventID, .keep_all = TRUE) %>%
   mutate(geodeticDatum = "WGS84",
-         samplingEffort = "midwater trawl")
+         samplingEffort = "midwater trawl",
+         institutionCode = "PBS",
+         institutionID = "https://edmo.seadatanet.org/report/4180",
+         datasetID = "https://doi.org/10.21966/gmrz-ad56",
+         bibliographicCitation = "King, J. R., Tabata, A., Freshwater, C., & Zubkowski, T. (2022). Trawl Data from the CCGS Sir John Franklin during the 2022 International Year of the Salmon Pan-Pacific Winter High Seas Expedition [Dataset]. North Pacific Anadromous Fish Commission. https://doi.org/10.21966/gmrz-ad56")
 
 # Save locally:
 write_csv(Franklin_event_trawl, here("standardized_data", "Franklin2022_event.csv"))
@@ -77,7 +81,9 @@ Franklin_event_trawl[duplicated(Franklin_event_trawl$eventID),] # should be none
 Next, create the occurrence extension for the overall catch: 
 
 ```{r occurrence overall catch, eval = FALSE}
-occurrence_allCatch <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "4. CATCH_FINAL INFO")     
+occurrence_allCatch <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "4. CATCH_FINAL INFO")
+
+occurrence_allCatch$verbatimIdentification <- occurrence_allCatch$Scientific_Name
 occurrence_allCatch <- occurrence_allCatch %>% rename(scientificname = Scientific_Name)
 unique_spp <- unique(occurrence_allCatch$scientificname) %>% as.data.frame()
 colnames(unique_spp) <- "scientificname"
@@ -107,6 +113,7 @@ Franklin_occurrence <- Franklin_occurrence_all %>%
   mutate(specificEpithet = stringr::word(scientificname, 2)) %>%
   select(eventID = DFO_Station_Event_ID, occurrenceID = DFO_Catch_ID, 
          scientificName = scientificname,
+         verbatimIdentification,
          scientificNameID = `lsid`, 
          scientificNameAuthorship = authority,
          taxonomicStatus = status,
@@ -125,6 +132,8 @@ Next, create the occurrence extension for the specimen catch:
 
 ```{r occurrence overall catch, eval = FALSE}
 occurrence_specimen <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "5. SPECIMEN INFO")
+
+occurrence_specimen$verbatimIdentification <- occurrence_specimen$Scientific_Name
 occurrence_specimen <- occurrence_specimen %>% rename(scientificname = Scientific_Name)
 unique_spp_specimen <- unique(occurrence_specimen$scientificname) %>% as.data.frame()
 colnames(unique_spp_specimen) <- "scientificname"
@@ -155,6 +164,7 @@ Franklin_occ_specimen <- Franklin_occurrence_specimen %>%
   select(eventID = DFO_Station_Event_ID, 
          occurrenceID = DFO_Specimen_ID, 
          scientificName = scientificname,
+         verbatimIdentification,
          scientificNameID = `lsid`, 
          scientificNameAuthorship = authority,
          taxonomicStatus = status,
