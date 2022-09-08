@@ -11,7 +11,11 @@ library(readxl)
 library(here)
 library(lubridate)
 library(obistools)
+```
 
+Download file:
+
+```{r download, eval = FALSE}
 download.file("https://github.com/international-year-of-the-salmon/2022-Franklin-Data-Template/blob/main/IYS_2022_FRANKLIN.xlsx?raw=true", here::here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), quiet = TRUE, mode = "wb", overwrite = TRUE)
 
 Franklin_event <- read_excel(here("IYS_data_template", "IYS_2022_FRANKLIN.xlsx"), sheet = "3. SAMPLING EVENT INFO") %>% filter(Event_Type == "Trawl")
@@ -239,7 +243,8 @@ Create eMOF extension data table:
 Franklin2022_rv <- Franklin_event %>%
   select(eventID = Station_Event_ID) %>%
   mutate_all(as.character) %>%
-  mutate(measurementType = "Research Vessel",
+  mutate(measurementID = paste(eventID, "rv", sep = "-"), 
+         measurementType = "Research Vessel",
          measurementTypeID = "http://vocab.nerc.ac.uk/collection/L06/current/31/",
          measurementValue = "CCGS Sir John Franklin",
          measurementValueID = "http://vocab.nerc.ac.uk/collection/C17/current/18KD/",
