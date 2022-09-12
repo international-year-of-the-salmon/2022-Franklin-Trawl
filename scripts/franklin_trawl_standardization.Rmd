@@ -352,13 +352,13 @@ Franklin2022_ind_eMOF <- Franklin_occurrence_specimen %>%
   pivot_longer(cols = Ageclass:Sex,
                names_to = "measurementType", 
                values_to = "measurementValue") %>%
-  mutate(measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Total Length", "Specimen total length", measurementType),
+  mutate(measurementID = paste(occurrenceID, measurementType, sep = "-"),
+         measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Total Length", "Specimen total length", measurementType),
          measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Fork Length", "Specimen fork length", measurementType),
          measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Mantle Length", "Specimen mantle length", measurementType),
          measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Bell Diameter", "Specimen bell diameter", measurementType),
          measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Standard Length", "Specimen standard length", measurementType)) %>%
-  mutate(measurementID = paste(occurrenceID, measurementType, sep = "-"),
-         measurementTypeID = case_when(
+  mutate(measurementTypeID = case_when(
            measurementType == "Ageclass" ~ "http://vocab.nerc.ac.uk/collection/P01/current/LSTAGE01/",
            measurementType == "Sex" ~ "http://vocab.nerc.ac.uk/collection/P01/current/ENTSEX01/",
            measurementType == "Specimen total length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/TL01XX01",
