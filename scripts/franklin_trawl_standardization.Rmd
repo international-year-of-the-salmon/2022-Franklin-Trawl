@@ -242,7 +242,7 @@ Create eMOF extension data table:
 ```{r eMOF, eval = FALSE}
 # Data table for the facts related to the Research Vessel:
 Franklin2022_rv <- Franklin_event %>%
-  select(eventID = Station_Event_ID) %>%
+  select(eventID) %>%
   mutate_all(as.character) %>%
   mutate(measurementID = paste(eventID, "rv", sep = "-"), 
          measurementType = "Research Vessel",
@@ -254,7 +254,7 @@ Franklin2022_rv <- Franklin_event %>%
 
 # Data table for the bottom depth at each sampling station:
 Franklin2022_bottomdepth <- Franklin_event %>%
-  select(eventID = Station_Event_ID,
+  select(eventID,
          Bottom_Depth_Meters = Bottom_Depth_Start) %>%
   mutate_all(as.character) %>%
   pivot_longer(cols = Bottom_Depth_Meters,
@@ -272,7 +272,7 @@ Franklin2022_bottomdepth <- Franklin_event %>%
 
 # Data table for the sampling effort:
 Franklin2022_samplingEffort <- Franklin_event %>%
-  select(eventID = Station_Event_ID,
+  select(eventID,
          Sampling_Duration,
          Tow_speed,
          Tow_distance) %>%
@@ -299,7 +299,7 @@ Franklin2022_samplingEffort <- Franklin_event %>%
 
 # Data table for the oceanic/atmospheric conditions during the sampling event:
 Franklin2022_conditions <- Franklin_event %>%
-  select(eventID = Station_Event_ID,
+  select(eventID,
          Wave_height) %>%
   mutate_all(as.character) %>%
   pivot_longer(cols = Wave_height,
@@ -318,8 +318,8 @@ Franklin2022_conditions <- Franklin_event %>%
          measurementUnit, measurementUnitID)
 
 Franklin2022_trawl_allCatch_eMOF <- Franklin_occurrence_all %>%
-  select(eventID = Station_Event_ID,
-         occurrenceID = Catch_ID,
+  select(eventID = DFO_Station_Event_ID,
+         occurrenceID = DFO_Catch_ID,
          individualCount = Catch_count,
          Catch_weight,
          Count_method) %>%
@@ -330,7 +330,7 @@ Franklin2022_trawl_allCatch_eMOF <- Franklin_occurrence_all %>%
   rename(measurementMethod = Count_method)
 
 Franklin2022_trawl_allCatch_eMOF <- Franklin2022_trawl_allCatch_eMOF %>%
-  mutate(measurementID = paste0(occurrenceID, measurementType, sep = "-"),
+  mutate(measurementID = paste(occurrenceID, measurementType, sep = "-"),
          measurementTypeID = case_when(
            measurementType == "individualCount" ~ "http://vocab.nerc.ac.uk/collection/P01/current/OCOUNT01/",
            measurementType == "Catch_weight" ~ "http://vocab.nerc.ac.uk/collection/S06/current/S0600088/"),
