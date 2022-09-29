@@ -42,9 +42,8 @@ Franklin_event <- Franklin_event %>%
   mutate(eventDate = paste(Time_Start_UTC, Time_End_UTC, sep = "/"),
          Month = ifelse(Month == "Feb", "2", "3") %>% as.numeric()) # Change Feb to 2, and Mar to 3.
 
-# Change Station_Event_IDs to facilitate project-level integration:
 Franklin_event <- Franklin_event %>%
-  dplyr::rename(eventID = DFO_Station_Event_ID)
+  dplyr::rename(eventID = DFO_Station_Event_ID) # Please note we're using the DFO Station Events for standardization to DwC.These should *not* be used for integration with the IYS Data Collection.
     
 Franklin_event_coordinates <- Franklin_event %>%
   select(eventID,
@@ -173,7 +172,7 @@ Franklin_occ_specimen <- Franklin_occurrence_specimen %>%
          scientificNameAuthorship = authority,
          taxonomicStatus = status,
          taxonRank = rank, 
-         lifeStage = Ageclass,
+         lifeStage = Age_Class,
          sex = Sex,
          vernacularName = common_name, 
          kingdom, phylum, class, order, family, genus, specificEpithet) %>% distinct() %>%
@@ -197,6 +196,7 @@ Franklin2022_occ <- Franklin2022_occ[match(order, Franklin2022_occ$occurrenceID)
 Franklin2022_occ <- sapply(Franklin2022_occ, as.character)
 Franklin2022_occ[is.na(Franklin2022_occ)] <- ""
 Franklin2022_occ <- as.data.frame(Franklin2022_occ)
+Franklin2022_occ$individualCount <- gsub("NA", "", Franklin2022_occ$individualCount)
 
 # Check if occurrenceIDs are all unique - answer should be TRUE:
 length(unique(Franklin2022_occ$occurrenceID)) == nrow(Franklin2022_occ)
@@ -348,9 +348,9 @@ Franklin2022_trawl_allCatch_eMOF <- Franklin2022_trawl_allCatch_eMOF %>%
 Franklin2022_ind_eMOF <- Franklin_occurrence_specimen %>%
   select(eventID = DFO_Station_Event_ID,
          occurrenceID = DFO_Specimen_ID, 
-         Ageclass, Specimen_Length, Specimen_Weight, Sex, Length_Type) %>%
+         Age_Class, Specimen_Length, Specimen_Weight, Sex, Length_Type) %>%
   mutate_all(as.character) %>%
-  pivot_longer(cols = Ageclass:Sex,
+  pivot_longer(cols = Age_Class:Sex,
                names_to = "measurementType", 
                values_to = "measurementValue") %>%
   mutate(measurementID = paste(occurrenceID, measurementType, sep = "-"),
@@ -360,7 +360,7 @@ Franklin2022_ind_eMOF <- Franklin_occurrence_specimen %>%
          measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Bell Diameter", "Specimen bell diameter", measurementType),
          measurementType = ifelse(measurementType == "Specimen_Length" & Length_Type == "Standard Length", "Specimen standard length", measurementType)) %>%
   mutate(measurementTypeID = case_when(
-           measurementType == "Ageclass" ~ "http://vocab.nerc.ac.uk/collection/P01/current/LSTAGE01/",
+           measurementType == "Age_Class" ~ "http://vocab.nerc.ac.uk/collection/P01/current/LSTAGE01/",
            measurementType == "Sex" ~ "http://vocab.nerc.ac.uk/collection/P01/current/ENTSEX01/",
            measurementType == "Specimen total length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/TL01XX01",
            measurementType == "Specimen fork length" ~ "http://vocab.nerc.ac.uk/collection/P01/current/FL01XX01/",
